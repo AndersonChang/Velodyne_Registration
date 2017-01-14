@@ -45,10 +45,7 @@ using namespace pcl::console;
 using pcl::visualization::PointCloudColorHandlerGenericField;
 using pcl::visualization::PointCloudColorHandlerCustom;
 
-#define MAX_FRAME 300
-
-int cloudSortInd[1200];
-int cloudNeighborPicked[1200];
+#define MAX_FRAME 10 //250
 
 //convenient typedefs
 typedef pcl::PointNormal PointNormalT;
@@ -147,7 +144,11 @@ void showCloudsLeft(const PointCloud<PointXYZ>::Ptr cloud_target, const PointClo
 	p->addPointCloud(cloud_target, tgt_h, "vp1_target", vp_1);
 	p->addPointCloud(cloud_source, src_h, "vp1_source", vp_1);
 
-	//p->spin();
+	//for(int i = 1; i < cloud_source->points.size(); i++)
+	//	p->addLine<pcl::PointXYZ>(cloud_source->points[i], cloud_source->points[i - 1], "line");
+	//p->addSphere(cloud_source->points[0], 0.2, 0.5, 0.5, 0.0, "sphere");
+
+	p->spin();
 }
 
 
@@ -236,14 +237,12 @@ void pairAlign(const PointCloud<PointXYZ>::Ptr cloud_src, const PointCloud<Point
 	reg.setInputSource(points_with_normals_src);
 	reg.setInputTarget(points_with_normals_tgt);
 
-
-
 	//
 	// Run the same optimization in a loop and visualize the results
 	Eigen::Matrix4f Ti = Eigen::Matrix4f::Identity(), prev, targetToSource;
 	PointCloudWithNormals::Ptr reg_result = points_with_normals_src;
 	reg.setMaximumIterations(2);
-	for (int i = 0; i < 30; ++i)
+	for (int i = 0; i < 1; ++i) //30
 	{
 		// save cloud for visualization purpose
 		points_with_normals_src = reg_result;
@@ -359,6 +358,7 @@ int main()
 
 	for (int numFrame = 0; numFrame < MAX_FRAME - 1; numFrame++)
 	{
+
 		pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_in(new pcl::PointCloud<pcl::PointXYZ>);
 		pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_out(new pcl::PointCloud<pcl::PointXYZ>);
 
@@ -367,8 +367,6 @@ int main()
 		cloud_in->height = 1;
 		cloud_in->is_dense = false;
 		cloud_in->points.resize(cloud_in->width * cloud_in->height);
-
-		int cloudSize = 0;
 		for (size_t i = 0; i < cloud_in->points.size(); ++i)
 		{
 			PointXYZI temp = frames[numFrame]->at(i);
@@ -393,9 +391,9 @@ int main()
 
 		// Add visualization data
 		//showCloudsLeft(cloud_in, cloud_out);
-		//p = new pcl::visualization::PCLVisualizer("Pairwise Incremental Registration example");
-		//p->createViewPort(0.0, 0, 0.5, 1.0, vp_1);
-		//p->createViewPort(0.5, 0, 1.0, 1.0, vp_2);
+		p = new pcl::visualization::PCLVisualizer("Pairwise Incremental Registration example");
+		p->createViewPort(0.0, 0, 0.5, 1.0, vp_1);
+		p->createViewPort(0.5, 0, 1.0, 1.0, vp_2);
 		//PointCloud<PointXYZ>::Ptr temp(new PointCloud<PointXYZ>);
 		//pairAlign(cloud_in, cloud_out, temp, pairTransform, true);
 
@@ -421,54 +419,368 @@ int main()
 		sor.setLeafSize(0.1f, 0.1f, 0.1f);
 		sor.filter(*cloud_out_filtered);
 
-		//cout << "cloud_in_filtered: " << cloud_in_filtered->width*cloud_in_filtered->height << endl;
-		//cout << "cloud_out_filtered: " << cloud_out_filtered->width*cloud_out_filtered->height << endl;
+
+		// Corner Detection
+		vector<int> cloudSortInd;
+		vector<int> cloudNeighborPicked;
+		vector<float> Sum_DiffBetweenTenNeighbors;
+		vector<int> record;
+		cloudSortInd.resize(cloud_in_filtered->width * cloud_in_filtered->height);
+		cloudNeighborPicked.resize(cloud_in_filtered->width * cloud_in_filtered->height, 0);
+		record.resize(cloud_in_filtered->width * cloud_in_filtered->height, 0);
+		Sum_DiffBetweenTenNeighbors.resize(cloud_in_filtered->width * cloud_in_filtered->height);
+
+		for (size_t i = 0; i < cloud_in_filtered->points.size(); ++i)
+		{
+			//PointXYZI temp = frames[numFrame]->at(i);
+			//cloud_in_filtered->points[i].x = temp.x;
+			//cloud_in_filtered->points[i].y = temp.y;
+			//cloud_in_filtered->points[i].z = temp.z;
+			cloudSortInd[i] = i;
+		}
+
+		for (int i = 5; i < cloud_in_filtered->points.size() - 5; i++) {
+			float diffX = cloud_in_filtered->points[i - 5].x + cloud_in_filtered->points[i - 4].x
+				+ cloud_in_filtered->points[i - 3].x + cloud_in_filtered->points[i - 2].x
+				+ cloud_in_filtered->points[i - 1].x - 10 * cloud_in_filtered->points[i].x
+				+ cloud_in_filtered->points[i + 1].x + cloud_in_filtered->points[i + 2].x
+				+ cloud_in_filtered->points[i + 3].x + cloud_in_filtered->points[i + 4].x
+				+ cloud_in_filtered->points[i + 5].x;
+			float diffY = cloud_in_filtered->points[i - 5].y + cloud_in_filtered->points[i - 4].y
+				+ cloud_in_filtered->points[i - 3].y + cloud_in_filtered->points[i - 2].y
+				+ cloud_in_filtered->points[i - 1].y - 10 * cloud_in_filtered->points[i].y
+				+ cloud_in_filtered->points[i + 1].y + cloud_in_filtered->points[i + 2].y
+				+ cloud_in_filtered->points[i + 3].y + cloud_in_filtered->points[i + 4].y
+				+ cloud_in_filtered->points[i + 5].y;
+			float diffZ = cloud_in_filtered->points[i - 5].z + cloud_in_filtered->points[i - 4].z
+				+ cloud_in_filtered->points[i - 3].z + cloud_in_filtered->points[i - 2].z
+				+ cloud_in_filtered->points[i - 1].z - 10 * cloud_in_filtered->points[i].z
+				+ cloud_in_filtered->points[i + 1].z + cloud_in_filtered->points[i + 2].z
+				+ cloud_in_filtered->points[i + 3].z + cloud_in_filtered->points[i + 4].z
+				+ cloud_in_filtered->points[i + 5].z;
+
+			Sum_DiffBetweenTenNeighbors[i] = diffX * diffX + diffY * diffY + diffZ * diffZ;
+		}
+
+		for (int i = 5; i < cloud_in_filtered->points.size() - 6; i++) {
+			float diffX = cloud_in_filtered->points[i + 1].x - cloud_in_filtered->points[i].x;
+			float diffY = cloud_in_filtered->points[i + 1].y - cloud_in_filtered->points[i].y;
+			float diffZ = cloud_in_filtered->points[i + 1].z - cloud_in_filtered->points[i].z;
+			float diff = diffX * diffX + diffY * diffY + diffZ * diffZ;
+
+			if (diff > 50) { //0.05
+
+				float depth1 = sqrt(cloud_in_filtered->points[i].x * cloud_in_filtered->points[i].x +
+					cloud_in_filtered->points[i].y * cloud_in_filtered->points[i].y +
+					cloud_in_filtered->points[i].z * cloud_in_filtered->points[i].z);
+
+				float depth2 = sqrt(cloud_in_filtered->points[i + 1].x * cloud_in_filtered->points[i + 1].x +
+					cloud_in_filtered->points[i + 1].y * cloud_in_filtered->points[i + 1].y +
+					cloud_in_filtered->points[i + 1].z * cloud_in_filtered->points[i + 1].z);
+
+				if (depth1 > depth2) {
+					diffX = cloud_in_filtered->points[i + 1].x - cloud_in_filtered->points[i].x * depth2 / depth1;
+					diffY = cloud_in_filtered->points[i + 1].y - cloud_in_filtered->points[i].y * depth2 / depth1;
+					diffZ = cloud_in_filtered->points[i + 1].z - cloud_in_filtered->points[i].z * depth2 / depth1;
+
+					if (sqrt(diffX * diffX + diffY * diffY + diffZ * diffZ) / depth2 < 0.1) {
+						cloudNeighborPicked[i - 5] = 1;
+						cloudNeighborPicked[i - 4] = 1;
+						cloudNeighborPicked[i - 3] = 1;
+						cloudNeighborPicked[i - 2] = 1;
+						cloudNeighborPicked[i - 1] = 1;
+						cloudNeighborPicked[i] = 1;
+					}
+				}
+				else {
+					diffX = cloud_in_filtered->points[i + 1].x * depth1 / depth2 - cloud_in_filtered->points[i].x;
+					diffY = cloud_in_filtered->points[i + 1].y * depth1 / depth2 - cloud_in_filtered->points[i].y;
+					diffZ = cloud_in_filtered->points[i + 1].z * depth1 / depth2 - cloud_in_filtered->points[i].z;
+
+					if (sqrt(diffX * diffX + diffY * diffY + diffZ * diffZ) / depth1 < 0.1) {
+						cloudNeighborPicked[i + 1] = 1;
+						cloudNeighborPicked[i + 2] = 1;
+						cloudNeighborPicked[i + 3] = 1;
+						cloudNeighborPicked[i + 4] = 1;
+						cloudNeighborPicked[i + 5] = 1;
+						cloudNeighborPicked[i + 6] = 1;
+					}
+				}
+			}
+
+			float diffX2 = cloud_in_filtered->points[i].x - cloud_in_filtered->points[i - 1].x;
+			float diffY2 = cloud_in_filtered->points[i].y - cloud_in_filtered->points[i - 1].y;
+			float diffZ2 = cloud_in_filtered->points[i].z - cloud_in_filtered->points[i - 1].z;
+			float diff2 = diffX2 * diffX2 + diffY2 * diffY2 + diffZ2 * diffZ2;
+
+			float dis = cloud_in_filtered->points[i].x * cloud_in_filtered->points[i].x
+				+ cloud_in_filtered->points[i].y * cloud_in_filtered->points[i].y
+				+ cloud_in_filtered->points[i].z * cloud_in_filtered->points[i].z;
+
+			if (diff > (0.25 * 0.25) / (20 * 20) * dis && diff2 > (0.25 * 0.25) / (20 * 20) * dis) {
+				cloudNeighborPicked[i] = 1;
+			}
+		}
+
+		int count_one = count(cloudNeighborPicked.begin(), cloudNeighborPicked.end(), 1);
+		cout << count_one << endl;
+
+		pcl::PointCloud<pcl::PointXYZ>::Ptr cornerPointsSharp(new pcl::PointCloud<pcl::PointXYZ>());
+		pcl::PointCloud<pcl::PointXYZ>::Ptr cornerPointsLessSharp(new pcl::PointCloud<pcl::PointXYZ>());
+		pcl::PointCloud<pcl::PointXYZ>::Ptr surfPointsFlat(new pcl::PointCloud<pcl::PointXYZ>());
+		pcl::PointCloud<pcl::PointXYZ>::Ptr surfPointsLessFlat(new pcl::PointCloud<pcl::PointXYZ>());
+
+		int startPoints[4] = { 5, 6 + int((cloud_in_filtered->points.size() - 10) / 4.0),
+			6 + int((cloud_in_filtered->points.size() - 10) / 2.0), 6 + int(3 * (cloud_in_filtered->points.size() - 10) / 4.0) };
+		int endPoints[4] = { 5 + int((cloud_in_filtered->points.size() - 10) / 4.0), 5 + int((cloud_in_filtered->points.size() - 10) / 2.0),
+			5 + int(3 * (cloud_in_filtered->points.size() - 10) / 4.0), cloud_in_filtered->points.size() - 6 };
+
+		for (int i = 0; i < 4; i++) {
+			int sp = startPoints[i];
+			int ep = endPoints[i];
+
+			for (int j = sp + 1; j <= ep; j++) {
+				for (int k = j; k >= sp + 1; k--) {
+					if (Sum_DiffBetweenTenNeighbors[cloudSortInd[k]] < Sum_DiffBetweenTenNeighbors[cloudSortInd[k - 1]]) {
+						int temp = cloudSortInd[k - 1];
+						cloudSortInd[k - 1] = cloudSortInd[k];
+						cloudSortInd[k] = temp;
+					}
+				}
+			}
+
+			int largestPickedNum = 0;
+			for (int j = ep; j >= sp; j--) {
+
+				//cout << fabs(cloud_in_filtered->points[cloudSortInd[j]].x) << endl;
+				//cout << fabs(cloud_in_filtered->points[cloudSortInd[j]].y) << endl;
+				//cout << fabs(cloud_in_filtered->points[cloudSortInd[j]].z) << endl;
+
+				if (cloudNeighborPicked[cloudSortInd[j]] == 0 &&
+					Sum_DiffBetweenTenNeighbors[cloudSortInd[j]] > 0.1 && //0.1 1000
+					(fabs(cloud_in_filtered->points[cloudSortInd[j]].x) > 0.3 ||
+						fabs(cloud_in_filtered->points[cloudSortInd[j]].y) > 0.3 ||
+						fabs(cloud_in_filtered->points[cloudSortInd[j]].z) > 0.3) &&
+					fabs(cloud_in_filtered->points[cloudSortInd[j]].x) < 100 && //30
+					fabs(cloud_in_filtered->points[cloudSortInd[j]].y) < 100 &&
+					fabs(cloud_in_filtered->points[cloudSortInd[j]].z) < 100) {
+
+					largestPickedNum++;
+					if (largestPickedNum <= 10000) { //2
+						record[cloudSortInd[j]] = 2; 
+						cornerPointsSharp->push_back(cloud_in_filtered->points[cloudSortInd[j]]);
+					}
+					else if (largestPickedNum <= 20000) { //20
+						record[cloudSortInd[j]] = 1;
+						cornerPointsLessSharp->push_back(cloud_in_filtered->points[cloudSortInd[j]]);
+					}
+					else {
+						break;
+					}
+
+					cloudNeighborPicked[cloudSortInd[j]] = 1;
+					for (int k = 1; k <= 5; k++) {
+						float diffX = cloud_in_filtered->points[cloudSortInd[j] + k].x
+							- cloud_in_filtered->points[cloudSortInd[j] + k - 1].x;
+						float diffY = cloud_in_filtered->points[cloudSortInd[j] + k].y
+							- cloud_in_filtered->points[cloudSortInd[j] + k - 1].y;
+						float diffZ = cloud_in_filtered->points[cloudSortInd[j] + k].z
+							- cloud_in_filtered->points[cloudSortInd[j] + k - 1].z;
+						if (diffX * diffX + diffY * diffY + diffZ * diffZ > 0.05) {
+							break;
+						}
+
+						cloudNeighborPicked[cloudSortInd[j] + k] = 1;
+					}
+					for (int k = -1; k >= -5; k--) {
+						float diffX = cloud_in_filtered->points[cloudSortInd[j] + k].x
+							- cloud_in_filtered->points[cloudSortInd[j] + k + 1].x;
+						float diffY = cloud_in_filtered->points[cloudSortInd[j] + k].y
+							- cloud_in_filtered->points[cloudSortInd[j] + k + 1].y;
+						float diffZ = cloud_in_filtered->points[cloudSortInd[j] + k].z
+							- cloud_in_filtered->points[cloudSortInd[j] + k + 1].z;
+						if (diffX * diffX + diffY * diffY + diffZ * diffZ > 0.05) {
+							break;
+						}
+
+						cloudNeighborPicked[cloudSortInd[j] + k] = 1;
+					}
+				}
+			}
+
+			int smallestPickedNum = 0;
+			for (int j = sp; j <= ep; j++) {
+				if (cloudNeighborPicked[cloudSortInd[j]] == 0 &&
+					Sum_DiffBetweenTenNeighbors[cloudSortInd[j]] < 0.1 &&
+					(fabs(cloud_in_filtered->points[cloudSortInd[j]].x) > 0.3 ||
+						fabs(cloud_in_filtered->points[cloudSortInd[j]].y) > 0.3 ||
+						fabs(cloud_in_filtered->points[cloudSortInd[j]].z) > 0.3) &&
+					fabs(cloud_in_filtered->points[cloudSortInd[j]].x) < 30 &&
+					fabs(cloud_in_filtered->points[cloudSortInd[j]].y) < 30 &&
+					fabs(cloud_in_filtered->points[cloudSortInd[j]].z) < 30) {
+
+					record[cloudSortInd[j]] = -1;
+					surfPointsFlat->push_back(cloud_in_filtered->points[cloudSortInd[j]]);
+
+					smallestPickedNum++;
+					if (smallestPickedNum >= 4) {
+						break;
+					}
+
+					cloudNeighborPicked[cloudSortInd[j]] = 1;
+					for (int k = 1; k <= 5; k++) {
+						float diffX = cloud_in_filtered->points[cloudSortInd[j] + k].x
+							- cloud_in_filtered->points[cloudSortInd[j] + k - 1].x;
+						float diffY = cloud_in_filtered->points[cloudSortInd[j] + k].y
+							- cloud_in_filtered->points[cloudSortInd[j] + k - 1].y;
+						float diffZ = cloud_in_filtered->points[cloudSortInd[j] + k].z
+							- cloud_in_filtered->points[cloudSortInd[j] + k - 1].z;
+						if (diffX * diffX + diffY * diffY + diffZ * diffZ > 0.05) {
+							break;
+						}
+
+						cloudNeighborPicked[cloudSortInd[j] + k] = 1;
+					}
+					for (int k = -1; k >= -5; k--) {
+						float diffX = cloud_in_filtered->points[cloudSortInd[j] + k].x
+							- cloud_in_filtered->points[cloudSortInd[j] + k + 1].x;
+						float diffY = cloud_in_filtered->points[cloudSortInd[j] + k].y
+							- cloud_in_filtered->points[cloudSortInd[j] + k + 1].y;
+						float diffZ = cloud_in_filtered->points[cloudSortInd[j] + k].z
+							- cloud_in_filtered->points[cloudSortInd[j] + k + 1].z;
+						if (diffX * diffX + diffY * diffY + diffZ * diffZ > 0.05) {
+							break;
+						}
+
+						cloudNeighborPicked[cloudSortInd[j] + k] = 1;
+					}
+				}
+			}
+		}
+
+		for (int i = 0; i < cloud_in_filtered->points.size(); i++) {
+			if (record[i] == 0) {
+				surfPointsLessFlat->push_back(cloud_in_filtered->points[i]);
+			}
+		}
+
+		showCloudsLeft(cloud_in_filtered, cornerPointsSharp);
+		//PointCloudColorHandlerCustom<pcl::PointXYZ> cloud_tgt_h(cornerPointsSharp, 0, 255, 0);
+		//PointCloudColorHandlerCustom<pcl::PointXYZ> cloud_src_h(cloud_in_filtered, 255, 0, 0);
+		//p->addPointCloud(cornerPointsSharp, cloud_tgt_h, "target", vp_1);
+		//p->addPointCloud(cloud_in_filtered, cloud_src_h, "source", vp_1);
+		//p->spin();
 
 
-		//boost::shared_ptr<pcl::visualization::PCLVisualizer> viewer(new pcl::visualization::PCLVisualizer("3D Viewer"));
-
-		//viewer->setBackgroundColor(0, 0, 0);
-		//pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZ> single_color(cloud_in_filtered, 0, 255, 0);
-		//viewer->addPointCloud<pcl::PointXYZ>(cloud_in_filtered, single_color, "sample cloud");
-		//pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZ> single_color2(cloud_out_filtered, 255, 0, 0);
-		//viewer->addPointCloud<pcl::PointXYZ>(cloud_out_filtered, single_color2, "sample cloud2");
-		//viewer->setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 3, "sample cloud");
-		//viewer->setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 3, "sample cloud2");
-		//viewer->addCoordinateSystem(1.0);
-		//viewer->initCameraParameters();
-
-
-		//while (!viewer->wasStopped())
-		//{
-		//	viewer->spinOnce(100);
-		//	boost::this_thread::sleep(boost::posix_time::microseconds(1000)); //00
-		//}
+		/*Linear ICP*/
+		PointCloud<PointXYZ>::Ptr output(new PointCloud<PointXYZ>);
+		showCloudsLeft(cloud_in_filtered, cloud_out_filtered);
 
 		pcl::IterativeClosestPoint<pcl::PointXYZ, pcl::PointXYZ> icp;
 		icp.setInputCloud(cloud_in_filtered);
 		icp.setInputTarget(cloud_out_filtered);
 		pcl::PointCloud<pcl::PointXYZ> Final;
-		icp.setMaximumIterations(50);
-		//icp.setEuclideanFitnessEpsilon(5);
+		//icp.setMaximumIterations(10);
+		//icp.setEuclideanFitnessEpsilon(0.001);
 		icp.align(Final);
 		//std::cout << "has converged:" << icp.hasConverged() << " score: " <<
 		//	icp.getFitnessScore() << std::endl;
 		//std::cout << icp.getFinalTransformation() << std::endl;
 		Eigen::Matrix4f homogenous_matrix;
 		homogenous_matrix = icp.getFinalTransformation();
+		Eigen::Matrix4f targetToSource = homogenous_matrix.inverse();
+		//// Visualize
+		pcl::transformPointCloud(*cloud_out_filtered, *output, targetToSource);
 
-		for (int i = 0; i < 3; i++)
-		{
-			for (int j = 0; j < 3; j++)
-			{
-				R.at<float>(i, j) = homogenous_matrix(i, j);
-			}
-		}
+		p->removePointCloud("source");
+		p->removePointCloud("target");
 
-		for (int i = 0; i < 3; i++)
-		{
-			t.at<float>(i, 0) = homogenous_matrix(i, 3);
-		}
+		PointCloudColorHandlerCustom<pcl::PointXYZ> cloud_tgt_h(output, 0, 255, 0);
+		PointCloudColorHandlerCustom<pcl::PointXYZ> cloud_src_h(cloud_in_filtered, 255, 0, 0);
+		p->addPointCloud(output, cloud_tgt_h, "target", vp_2);
+		p->addPointCloud(cloud_in_filtered, cloud_src_h, "source", vp_2);
+		p->spin();
+
+		/////////////////////////////////////////////////////////////////////////////////////
+		// Compute surface normals and curvature
+
+		////PointCloudWithNormals::Ptr points_with_normals_src(new PointCloudWithNormals);
+		////PointCloudWithNormals::Ptr points_with_normals_tgt(new PointCloudWithNormals);
+
+		////pcl::NormalEstimation<pcl::PointXYZ, PointNormalT> norm_est;
+		////pcl::search::KdTree<pcl::PointXYZ>::Ptr tree(new pcl::search::KdTree<pcl::PointXYZ>());
+		////norm_est.setSearchMethod(tree);
+		////norm_est.setKSearch(30);
+
+		////norm_est.setInputCloud(cloud_in_filtered);
+		////norm_est.compute(*points_with_normals_src);
+		////pcl::copyPointCloud(*cloud_in_filtered, *points_with_normals_src);
+
+		////norm_est.setInputCloud(cloud_out_filtered);
+		////norm_est.compute(*points_with_normals_tgt);
+		////pcl::copyPointCloud(*cloud_out_filtered, *points_with_normals_tgt);
+
+		//////
+		////// Instantiate our custom point representation (defined above) ...
+		////MyPointRepresentation point_representation;
+		////// ... and weight the 'curvature' dimension so that it is balanced against x, y, and z
+		////float alpha[4] = { 1.0, 1.0, 1.0, 1.0 };
+		////point_representation.setRescaleValues(alpha);
+
+		//////
+		////// Align
+		////pcl::IterativeClosestPointNonLinear<PointNormalT, PointNormalT> reg;
+		////reg.setTransformationEpsilon(1e-6);
+		////// Set the maximum distance between two correspondences (src<->tgt) to 10cm
+		////// Note: adjust this based on the size of your datasets
+		////reg.setMaxCorrespondenceDistance(0.1);
+		////// Set the point representation
+		////reg.setPointRepresentation(boost::make_shared<const MyPointRepresentation>(point_representation));
+
+		////reg.setInputSource(points_with_normals_src);
+		////reg.setInputTarget(points_with_normals_tgt);
+
+		//////
+		////// Run the same optimization in a loop and visualize the results
+		////Eigen::Matrix4f Ti = Eigen::Matrix4f::Identity(), prev, targetToSource;
+		////PointCloudWithNormals::Ptr reg_result = points_with_normals_src;
+		////reg.setMaximumIterations(2);
+		////for (int i = 0; i < 1; ++i)
+		////{
+		////	// save cloud for visualization purpose
+		////	points_with_normals_src = reg_result;
+
+		////	// Estimate
+		////	reg.setInputSource(points_with_normals_src);
+		////	reg.align(*reg_result);
+
+		////	//accumulate transformation between each Iteration
+		////	Ti = reg.getFinalTransformation() * Ti;
+
+		////	//if the difference between this transformation and the previous one
+		////	//is smaller than the threshold, refine the process by reducing
+		////	//the maximal correspondence distance
+		////	if (fabs((reg.getLastIncrementalTransformation() - prev).sum()) < reg.getTransformationEpsilon())
+		////		reg.setMaxCorrespondenceDistance(reg.getMaxCorrespondenceDistance() - 0.001);
+
+		////	prev = reg.getLastIncrementalTransformation();
+		////}
+		/////////////////////////////////////////////////////////////////////////////////////////////////////////
+		//Eigen::Matrix4f homogenous_matrix;
+		//homogenous_matrix = Ti;
+
+		//for (int i = 0; i < 3; i++)
+		//{
+		//	for (int j = 0; j < 3; j++)
+		//	{
+		//		R.at<float>(i, j) = homogenous_matrix(i, j);
+		//	}
+		//}
+
+		//for (int i = 0; i < 3; i++)
+		//{
+		//	t.at<float>(i, 0) = homogenous_matrix(i, 3);
+		//}
 
 		t_f = t_f + R_f*t;
 		R_f = R*R_f;
@@ -476,34 +788,8 @@ int main()
 		Final_H.push_back(homogenous_matrix);
 	}
 
-	//for (int i = 0; i < Final_t.size(); i++)
-	//{
-	//	for (int j = 0; j < Final_t[0].size(); j++)
-	//	{
-	//		cout << Final_t[i][j] << " ";
-	//	}
-	//	cout << endl;
-	//}
-	
 	MyFileOutput(Final_t);
 	MyFileOutput_Mat(Final_H);
-
-	//namedWindow("Trajectory", WINDOW_AUTOSIZE);// Create a window for display.
-	//resizeWindow("Trajectory", 600, 600);
-	//for (int i = 0; i < Final_t.size(); i++)
-	//{
-	//	//cout << Final_t[i][0] << endl;
-	//	//cout << Final_t[i][1] << endl;
-	//	int x = int(Final_t[i][0]) + 450;
-	//	int y = int(Final_t[i][1]) + 300;
-
-	//	rectangle(traj, Point(10, 30), Point(550, 50), CV_RGB(0, 0, 0), CV_FILLED);
-	//	sprintf(text, "Coordinates: x = %02fm y = %02fm z = %02fm", t_f.at<float>(0), t_f.at<float>(1), t_f.at<float>(2));
-	//	putText(traj, text, textOrg, fontFace, fontScale, Scalar::all(255), thickness, 1);
-	//	circle(traj, Point(x, y), 2, CV_RGB(255, 0, 0), 2);
-	//	imshow("Trajectory", traj);
-	//	waitKey(1);
-	//}
 
 	auto t2 = Clock::now();
 	cout << "time for nms: " << chrono::duration_cast<chrono::microseconds>(t2 - t1).count() / (double)1000000
@@ -517,18 +803,19 @@ int main()
 #endif 
 
 
+//cout << "cloud_in_filtered: " << cloud_in_filtered->width*cloud_in_filtered->height << endl;
+//cout << "cloud_out_filtered: " << cloud_out_filtered->width*cloud_out_filtered->height << endl;
+
+
 //boost::shared_ptr<pcl::visualization::PCLVisualizer> viewer(new pcl::visualization::PCLVisualizer("3D Viewer"));
-//PointCloud<PointXYZRGB>::Ptr cloud(new PointCloud<PointXYZRGB>);
-//if (pcl::io::loadPLYFile<pcl::PointXYZRGB>("final_scene.ply", *cloud) == -1) //* load the file
-//{
-//	PCL_ERROR("Couldn't read file test_pcd.pcd \n");
-//	return (-1);
-//}
 
 //viewer->setBackgroundColor(0, 0, 0);
-////pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZRGB> single_color(cloud, 255, 0, 0);
-//viewer->addPointCloud<pcl::PointXYZRGB>(cloud, "sample cloud");
+//pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZ> single_color(cloud_in_filtered, 0, 255, 0);
+//viewer->addPointCloud<pcl::PointXYZ>(cloud_in_filtered, single_color, "sample cloud");
+//pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZ> single_color2(cloud_out_filtered, 255, 0, 0);
+//viewer->addPointCloud<pcl::PointXYZ>(cloud_out_filtered, single_color2, "sample cloud2");
 //viewer->setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 3, "sample cloud");
+//viewer->setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 3, "sample cloud2");
 //viewer->addCoordinateSystem(1.0);
 //viewer->initCameraParameters();
 
@@ -536,5 +823,5 @@ int main()
 //while (!viewer->wasStopped())
 //{
 //	viewer->spinOnce(100);
-//	boost::this_thread::sleep(boost::posix_time::microseconds(100000));
+//	boost::this_thread::sleep(boost::posix_time::microseconds(1000)); //00
 //}
