@@ -8,6 +8,7 @@
 #include <sstream>
 #include <vector> 
 #include <chrono> 
+#include <algorithm>
 
 #include "opencv2/video/tracking.hpp"
 #include "opencv2/imgproc/imgproc.hpp"
@@ -45,7 +46,7 @@ using namespace pcl::console;
 using pcl::visualization::PointCloudColorHandlerGenericField;
 using pcl::visualization::PointCloudColorHandlerCustom;
 
-#define MAX_FRAME 10 //250
+#define MAX_FRAME 200 //250
 
 //convenient typedefs
 typedef pcl::PointNormal PointNormalT;
@@ -148,7 +149,7 @@ void showCloudsLeft(const PointCloud<PointXYZ>::Ptr cloud_target, const PointClo
 	//	p->addLine<pcl::PointXYZ>(cloud_source->points[i], cloud_source->points[i - 1], "line");
 	//p->addSphere(cloud_source->points[0], 0.2, 0.5, 0.5, 0.0, "sphere");
 
-	p->spin();
+	//p->spin();
 }
 
 
@@ -281,7 +282,7 @@ void pairAlign(const PointCloud<PointXYZ>::Ptr cloud_src, const PointCloud<Point
 	PointCloudColorHandlerCustom<pcl::PointXYZ> cloud_src_h(cloud_src, 255, 0, 0);
 	p->addPointCloud(output, cloud_tgt_h, "target", vp_2);
 	p->addPointCloud(cloud_src, cloud_src_h, "source", vp_2);
-  	p->spin();
+	p->spin();
 
 	p->removePointCloud("source");
 	p->removePointCloud("target");
@@ -312,7 +313,7 @@ void MyFileOutput_Mat(vector<Eigen::Matrix4f>& output)
 	for (auto& row : output)
 	{
 		/*for (auto col : row)*/
-		OutPut_File << row ;
+		OutPut_File << row;
 		OutPut_File << '\n';
 	}
 	OutPut_File.close();
@@ -343,18 +344,13 @@ int main()
 
 	for (int numFrame = 0; numFrame < MAX_FRAME; numFrame++)
 	{
-		sprintf(filename, "D:\\Downloads\\data_odometry_velodyne\\dataset\\sequences\\00\\velodyne\\%06d.bin", numFrame); 
+		sprintf(filename, "D:\\Downloads\\data_odometry_velodyne\\dataset\\sequences\\00\\velodyne\\%06d.bin", numFrame);
 		pcl::PointCloud<PointXYZI>::Ptr frame_points = MyFileOpen(filename);
 		frames.push_back(frame_points);
 	}
 
-
-	//p = new pcl::visualization::PCLVisualizer("Pairwise Incremental Registration example");
-	//p->createViewPort(0.0, 0, 0.5, 1.0, vp_1);
-	//p->createViewPort(0.5, 0, 1.0, 1.0, vp_2);
 	PointCloud<PointXYZ>::Ptr result(new PointCloud<PointXYZ>);
 	Eigen::Matrix4f GlobalTransform = Eigen::Matrix4f::Identity(), pairTransform;
-
 
 	for (int numFrame = 0; numFrame < MAX_FRAME - 1; numFrame++)
 	{
@@ -390,401 +386,135 @@ int main()
 
 
 		// Add visualization data
-		//showCloudsLeft(cloud_in, cloud_out);
-		p = new pcl::visualization::PCLVisualizer("Pairwise Incremental Registration example");
-		p->createViewPort(0.0, 0, 0.5, 1.0, vp_1);
-		p->createViewPort(0.5, 0, 1.0, 1.0, vp_2);
-		//PointCloud<PointXYZ>::Ptr temp(new PointCloud<PointXYZ>);
-		//pairAlign(cloud_in, cloud_out, temp, pairTransform, true);
-
-		//transform current pair into the global transform
-		//pcl::transformPointCloud(*temp, *result, GlobalTransform);
-
-		//update the global transform
-		//GlobalTransform = GlobalTransform * pairTransform;
-
-
-		//cout <<"cloud_in: " << cloud_in->width*cloud_in->height << endl;
-		//cout <<"cloud_out: "<< cloud_out->width*cloud_out->height << endl;
+		//p = new pcl::visualization::PCLVisualizer("Pairwise Incremental Registration example");
+		//p->createViewPort(0.0, 0, 0.5, 1.0, vp_1);
+		//p->createViewPort(0.5, 0, 1.0, 1.0, vp_2);
 
 		pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_in_filtered(new pcl::PointCloud<pcl::PointXYZ>);
 		pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_out_filtered(new pcl::PointCloud<pcl::PointXYZ>);
 		// Create the filtering object
 		pcl::VoxelGrid<pcl::PointXYZ> sor;
 		sor.setInputCloud(cloud_in);
-		sor.setLeafSize(0.1f, 0.1f, 0.1f);
+		sor.setLeafSize(0.8f, 0.8f, 0.8f);
 		sor.filter(*cloud_in_filtered);
 
 		sor.setInputCloud(cloud_out);
-		sor.setLeafSize(0.1f, 0.1f, 0.1f);
+		sor.setLeafSize(0.8f, 0.8f, 0.8f);
 		sor.filter(*cloud_out_filtered);
 
-
-		// Corner Detection
-		vector<int> cloudSortInd;
-		vector<int> cloudNeighborPicked;
-		vector<float> Sum_DiffBetweenTenNeighbors;
-		vector<int> record;
-		cloudSortInd.resize(cloud_in_filtered->width * cloud_in_filtered->height);
-		cloudNeighborPicked.resize(cloud_in_filtered->width * cloud_in_filtered->height, 0);
-		record.resize(cloud_in_filtered->width * cloud_in_filtered->height, 0);
-		Sum_DiffBetweenTenNeighbors.resize(cloud_in_filtered->width * cloud_in_filtered->height);
-
-		for (size_t i = 0; i < cloud_in_filtered->points.size(); ++i)
-		{
-			//PointXYZI temp = frames[numFrame]->at(i);
-			//cloud_in_filtered->points[i].x = temp.x;
-			//cloud_in_filtered->points[i].y = temp.y;
-			//cloud_in_filtered->points[i].z = temp.z;
-			cloudSortInd[i] = i;
-		}
-
-		for (int i = 5; i < cloud_in_filtered->points.size() - 5; i++) {
-			float diffX = cloud_in_filtered->points[i - 5].x + cloud_in_filtered->points[i - 4].x
-				+ cloud_in_filtered->points[i - 3].x + cloud_in_filtered->points[i - 2].x
-				+ cloud_in_filtered->points[i - 1].x - 10 * cloud_in_filtered->points[i].x
-				+ cloud_in_filtered->points[i + 1].x + cloud_in_filtered->points[i + 2].x
-				+ cloud_in_filtered->points[i + 3].x + cloud_in_filtered->points[i + 4].x
-				+ cloud_in_filtered->points[i + 5].x;
-			float diffY = cloud_in_filtered->points[i - 5].y + cloud_in_filtered->points[i - 4].y
-				+ cloud_in_filtered->points[i - 3].y + cloud_in_filtered->points[i - 2].y
-				+ cloud_in_filtered->points[i - 1].y - 10 * cloud_in_filtered->points[i].y
-				+ cloud_in_filtered->points[i + 1].y + cloud_in_filtered->points[i + 2].y
-				+ cloud_in_filtered->points[i + 3].y + cloud_in_filtered->points[i + 4].y
-				+ cloud_in_filtered->points[i + 5].y;
-			float diffZ = cloud_in_filtered->points[i - 5].z + cloud_in_filtered->points[i - 4].z
-				+ cloud_in_filtered->points[i - 3].z + cloud_in_filtered->points[i - 2].z
-				+ cloud_in_filtered->points[i - 1].z - 10 * cloud_in_filtered->points[i].z
-				+ cloud_in_filtered->points[i + 1].z + cloud_in_filtered->points[i + 2].z
-				+ cloud_in_filtered->points[i + 3].z + cloud_in_filtered->points[i + 4].z
-				+ cloud_in_filtered->points[i + 5].z;
-
-			Sum_DiffBetweenTenNeighbors[i] = diffX * diffX + diffY * diffY + diffZ * diffZ;
-		}
-
-		for (int i = 5; i < cloud_in_filtered->points.size() - 6; i++) {
-			float diffX = cloud_in_filtered->points[i + 1].x - cloud_in_filtered->points[i].x;
-			float diffY = cloud_in_filtered->points[i + 1].y - cloud_in_filtered->points[i].y;
-			float diffZ = cloud_in_filtered->points[i + 1].z - cloud_in_filtered->points[i].z;
-			float diff = diffX * diffX + diffY * diffY + diffZ * diffZ;
-
-			if (diff > 50) { //0.05
-
-				float depth1 = sqrt(cloud_in_filtered->points[i].x * cloud_in_filtered->points[i].x +
-					cloud_in_filtered->points[i].y * cloud_in_filtered->points[i].y +
-					cloud_in_filtered->points[i].z * cloud_in_filtered->points[i].z);
-
-				float depth2 = sqrt(cloud_in_filtered->points[i + 1].x * cloud_in_filtered->points[i + 1].x +
-					cloud_in_filtered->points[i + 1].y * cloud_in_filtered->points[i + 1].y +
-					cloud_in_filtered->points[i + 1].z * cloud_in_filtered->points[i + 1].z);
-
-				if (depth1 > depth2) {
-					diffX = cloud_in_filtered->points[i + 1].x - cloud_in_filtered->points[i].x * depth2 / depth1;
-					diffY = cloud_in_filtered->points[i + 1].y - cloud_in_filtered->points[i].y * depth2 / depth1;
-					diffZ = cloud_in_filtered->points[i + 1].z - cloud_in_filtered->points[i].z * depth2 / depth1;
-
-					if (sqrt(diffX * diffX + diffY * diffY + diffZ * diffZ) / depth2 < 0.1) {
-						cloudNeighborPicked[i - 5] = 1;
-						cloudNeighborPicked[i - 4] = 1;
-						cloudNeighborPicked[i - 3] = 1;
-						cloudNeighborPicked[i - 2] = 1;
-						cloudNeighborPicked[i - 1] = 1;
-						cloudNeighborPicked[i] = 1;
-					}
-				}
-				else {
-					diffX = cloud_in_filtered->points[i + 1].x * depth1 / depth2 - cloud_in_filtered->points[i].x;
-					diffY = cloud_in_filtered->points[i + 1].y * depth1 / depth2 - cloud_in_filtered->points[i].y;
-					diffZ = cloud_in_filtered->points[i + 1].z * depth1 / depth2 - cloud_in_filtered->points[i].z;
-
-					if (sqrt(diffX * diffX + diffY * diffY + diffZ * diffZ) / depth1 < 0.1) {
-						cloudNeighborPicked[i + 1] = 1;
-						cloudNeighborPicked[i + 2] = 1;
-						cloudNeighborPicked[i + 3] = 1;
-						cloudNeighborPicked[i + 4] = 1;
-						cloudNeighborPicked[i + 5] = 1;
-						cloudNeighborPicked[i + 6] = 1;
-					}
-				}
-			}
-
-			float diffX2 = cloud_in_filtered->points[i].x - cloud_in_filtered->points[i - 1].x;
-			float diffY2 = cloud_in_filtered->points[i].y - cloud_in_filtered->points[i - 1].y;
-			float diffZ2 = cloud_in_filtered->points[i].z - cloud_in_filtered->points[i - 1].z;
-			float diff2 = diffX2 * diffX2 + diffY2 * diffY2 + diffZ2 * diffZ2;
-
-			float dis = cloud_in_filtered->points[i].x * cloud_in_filtered->points[i].x
-				+ cloud_in_filtered->points[i].y * cloud_in_filtered->points[i].y
-				+ cloud_in_filtered->points[i].z * cloud_in_filtered->points[i].z;
-
-			if (diff > (0.25 * 0.25) / (20 * 20) * dis && diff2 > (0.25 * 0.25) / (20 * 20) * dis) {
-				cloudNeighborPicked[i] = 1;
-			}
-		}
-
-		int count_one = count(cloudNeighborPicked.begin(), cloudNeighborPicked.end(), 1);
-		cout << count_one << endl;
-
-		pcl::PointCloud<pcl::PointXYZ>::Ptr cornerPointsSharp(new pcl::PointCloud<pcl::PointXYZ>());
-		pcl::PointCloud<pcl::PointXYZ>::Ptr cornerPointsLessSharp(new pcl::PointCloud<pcl::PointXYZ>());
-		pcl::PointCloud<pcl::PointXYZ>::Ptr surfPointsFlat(new pcl::PointCloud<pcl::PointXYZ>());
-		pcl::PointCloud<pcl::PointXYZ>::Ptr surfPointsLessFlat(new pcl::PointCloud<pcl::PointXYZ>());
-
-		int startPoints[4] = { 5, 6 + int((cloud_in_filtered->points.size() - 10) / 4.0),
-			6 + int((cloud_in_filtered->points.size() - 10) / 2.0), 6 + int(3 * (cloud_in_filtered->points.size() - 10) / 4.0) };
-		int endPoints[4] = { 5 + int((cloud_in_filtered->points.size() - 10) / 4.0), 5 + int((cloud_in_filtered->points.size() - 10) / 2.0),
-			5 + int(3 * (cloud_in_filtered->points.size() - 10) / 4.0), cloud_in_filtered->points.size() - 6 };
-
-		for (int i = 0; i < 4; i++) {
-			int sp = startPoints[i];
-			int ep = endPoints[i];
-
-			for (int j = sp + 1; j <= ep; j++) {
-				for (int k = j; k >= sp + 1; k--) {
-					if (Sum_DiffBetweenTenNeighbors[cloudSortInd[k]] < Sum_DiffBetweenTenNeighbors[cloudSortInd[k - 1]]) {
-						int temp = cloudSortInd[k - 1];
-						cloudSortInd[k - 1] = cloudSortInd[k];
-						cloudSortInd[k] = temp;
-					}
-				}
-			}
-
-			int largestPickedNum = 0;
-			for (int j = ep; j >= sp; j--) {
-
-				//cout << fabs(cloud_in_filtered->points[cloudSortInd[j]].x) << endl;
-				//cout << fabs(cloud_in_filtered->points[cloudSortInd[j]].y) << endl;
-				//cout << fabs(cloud_in_filtered->points[cloudSortInd[j]].z) << endl;
-
-				if (cloudNeighborPicked[cloudSortInd[j]] == 0 &&
-					Sum_DiffBetweenTenNeighbors[cloudSortInd[j]] > 0.1 && //0.1 1000
-					(fabs(cloud_in_filtered->points[cloudSortInd[j]].x) > 0.3 ||
-						fabs(cloud_in_filtered->points[cloudSortInd[j]].y) > 0.3 ||
-						fabs(cloud_in_filtered->points[cloudSortInd[j]].z) > 0.3) &&
-					fabs(cloud_in_filtered->points[cloudSortInd[j]].x) < 100 && //30
-					fabs(cloud_in_filtered->points[cloudSortInd[j]].y) < 100 &&
-					fabs(cloud_in_filtered->points[cloudSortInd[j]].z) < 100) {
-
-					largestPickedNum++;
-					if (largestPickedNum <= 10000) { //2
-						record[cloudSortInd[j]] = 2; 
-						cornerPointsSharp->push_back(cloud_in_filtered->points[cloudSortInd[j]]);
-					}
-					else if (largestPickedNum <= 20000) { //20
-						record[cloudSortInd[j]] = 1;
-						cornerPointsLessSharp->push_back(cloud_in_filtered->points[cloudSortInd[j]]);
-					}
-					else {
-						break;
-					}
-
-					cloudNeighborPicked[cloudSortInd[j]] = 1;
-					for (int k = 1; k <= 5; k++) {
-						float diffX = cloud_in_filtered->points[cloudSortInd[j] + k].x
-							- cloud_in_filtered->points[cloudSortInd[j] + k - 1].x;
-						float diffY = cloud_in_filtered->points[cloudSortInd[j] + k].y
-							- cloud_in_filtered->points[cloudSortInd[j] + k - 1].y;
-						float diffZ = cloud_in_filtered->points[cloudSortInd[j] + k].z
-							- cloud_in_filtered->points[cloudSortInd[j] + k - 1].z;
-						if (diffX * diffX + diffY * diffY + diffZ * diffZ > 0.05) {
-							break;
-						}
-
-						cloudNeighborPicked[cloudSortInd[j] + k] = 1;
-					}
-					for (int k = -1; k >= -5; k--) {
-						float diffX = cloud_in_filtered->points[cloudSortInd[j] + k].x
-							- cloud_in_filtered->points[cloudSortInd[j] + k + 1].x;
-						float diffY = cloud_in_filtered->points[cloudSortInd[j] + k].y
-							- cloud_in_filtered->points[cloudSortInd[j] + k + 1].y;
-						float diffZ = cloud_in_filtered->points[cloudSortInd[j] + k].z
-							- cloud_in_filtered->points[cloudSortInd[j] + k + 1].z;
-						if (diffX * diffX + diffY * diffY + diffZ * diffZ > 0.05) {
-							break;
-						}
-
-						cloudNeighborPicked[cloudSortInd[j] + k] = 1;
-					}
-				}
-			}
-
-			int smallestPickedNum = 0;
-			for (int j = sp; j <= ep; j++) {
-				if (cloudNeighborPicked[cloudSortInd[j]] == 0 &&
-					Sum_DiffBetweenTenNeighbors[cloudSortInd[j]] < 0.1 &&
-					(fabs(cloud_in_filtered->points[cloudSortInd[j]].x) > 0.3 ||
-						fabs(cloud_in_filtered->points[cloudSortInd[j]].y) > 0.3 ||
-						fabs(cloud_in_filtered->points[cloudSortInd[j]].z) > 0.3) &&
-					fabs(cloud_in_filtered->points[cloudSortInd[j]].x) < 30 &&
-					fabs(cloud_in_filtered->points[cloudSortInd[j]].y) < 30 &&
-					fabs(cloud_in_filtered->points[cloudSortInd[j]].z) < 30) {
-
-					record[cloudSortInd[j]] = -1;
-					surfPointsFlat->push_back(cloud_in_filtered->points[cloudSortInd[j]]);
-
-					smallestPickedNum++;
-					if (smallestPickedNum >= 4) {
-						break;
-					}
-
-					cloudNeighborPicked[cloudSortInd[j]] = 1;
-					for (int k = 1; k <= 5; k++) {
-						float diffX = cloud_in_filtered->points[cloudSortInd[j] + k].x
-							- cloud_in_filtered->points[cloudSortInd[j] + k - 1].x;
-						float diffY = cloud_in_filtered->points[cloudSortInd[j] + k].y
-							- cloud_in_filtered->points[cloudSortInd[j] + k - 1].y;
-						float diffZ = cloud_in_filtered->points[cloudSortInd[j] + k].z
-							- cloud_in_filtered->points[cloudSortInd[j] + k - 1].z;
-						if (diffX * diffX + diffY * diffY + diffZ * diffZ > 0.05) {
-							break;
-						}
-
-						cloudNeighborPicked[cloudSortInd[j] + k] = 1;
-					}
-					for (int k = -1; k >= -5; k--) {
-						float diffX = cloud_in_filtered->points[cloudSortInd[j] + k].x
-							- cloud_in_filtered->points[cloudSortInd[j] + k + 1].x;
-						float diffY = cloud_in_filtered->points[cloudSortInd[j] + k].y
-							- cloud_in_filtered->points[cloudSortInd[j] + k + 1].y;
-						float diffZ = cloud_in_filtered->points[cloudSortInd[j] + k].z
-							- cloud_in_filtered->points[cloudSortInd[j] + k + 1].z;
-						if (diffX * diffX + diffY * diffY + diffZ * diffZ > 0.05) {
-							break;
-						}
-
-						cloudNeighborPicked[cloudSortInd[j] + k] = 1;
-					}
-				}
-			}
-		}
-
-		for (int i = 0; i < cloud_in_filtered->points.size(); i++) {
-			if (record[i] == 0) {
-				surfPointsLessFlat->push_back(cloud_in_filtered->points[i]);
-			}
-		}
-
-		showCloudsLeft(cloud_in_filtered, cornerPointsSharp);
-		//PointCloudColorHandlerCustom<pcl::PointXYZ> cloud_tgt_h(cornerPointsSharp, 0, 255, 0);
-		//PointCloudColorHandlerCustom<pcl::PointXYZ> cloud_src_h(cloud_in_filtered, 255, 0, 0);
-		//p->addPointCloud(cornerPointsSharp, cloud_tgt_h, "target", vp_1);
-		//p->addPointCloud(cloud_in_filtered, cloud_src_h, "source", vp_1);
-		//p->spin();
-
-
 		/*Linear ICP*/
-		PointCloud<PointXYZ>::Ptr output(new PointCloud<PointXYZ>);
-		showCloudsLeft(cloud_in_filtered, cloud_out_filtered);
+		////PointCloud<PointXYZ>::Ptr output(new PointCloud<PointXYZ>);
+		////showCloudsLeft(cloud_in_filtered, cloud_out_filtered);
 
-		pcl::IterativeClosestPoint<pcl::PointXYZ, pcl::PointXYZ> icp;
-		icp.setInputCloud(cloud_in_filtered);
-		icp.setInputTarget(cloud_out_filtered);
-		pcl::PointCloud<pcl::PointXYZ> Final;
-		//icp.setMaximumIterations(10);
-		//icp.setEuclideanFitnessEpsilon(0.001);
-		icp.align(Final);
-		//std::cout << "has converged:" << icp.hasConverged() << " score: " <<
-		//	icp.getFitnessScore() << std::endl;
-		//std::cout << icp.getFinalTransformation() << std::endl;
-		Eigen::Matrix4f homogenous_matrix;
-		homogenous_matrix = icp.getFinalTransformation();
-		Eigen::Matrix4f targetToSource = homogenous_matrix.inverse();
-		//// Visualize
-		pcl::transformPointCloud(*cloud_out_filtered, *output, targetToSource);
+		////pcl::IterativeClosestPoint<pcl::PointXYZ, pcl::PointXYZ> icp;
+		////icp.setInputCloud(cloud_in_filtered);
+		////icp.setInputTarget(cloud_out_filtered);
+		////pcl::PointCloud<pcl::PointXYZ> Final;
+		//////icp.setMaximumIterations(10);
+		//////icp.setEuclideanFitnessEpsilon(0.001);
+		////icp.align(Final);
+		//////std::cout << "has converged:" << icp.hasConverged() << " score: " <<
+		//////	icp.getFitnessScore() << std::endl;
+		//////std::cout << icp.getFinalTransformation() << std::endl;
+		////Eigen::Matrix4f homogenous_matrix;
+		////homogenous_matrix = icp.getFinalTransformation();
+		////Eigen::Matrix4f targetToSource = homogenous_matrix.inverse();
+		//////// Visualize
+		////pcl::transformPointCloud(*cloud_out_filtered, *output, targetToSource);
 
-		p->removePointCloud("source");
-		p->removePointCloud("target");
+		////p->removePointCloud("source");
+		////p->removePointCloud("target");
 
-		PointCloudColorHandlerCustom<pcl::PointXYZ> cloud_tgt_h(output, 0, 255, 0);
-		PointCloudColorHandlerCustom<pcl::PointXYZ> cloud_src_h(cloud_in_filtered, 255, 0, 0);
-		p->addPointCloud(output, cloud_tgt_h, "target", vp_2);
-		p->addPointCloud(cloud_in_filtered, cloud_src_h, "source", vp_2);
-		p->spin();
+		////PointCloudColorHandlerCustom<pcl::PointXYZ> cloud_tgt_h(output, 0, 255, 0);
+		////PointCloudColorHandlerCustom<pcl::PointXYZ> cloud_src_h(cloud_in_filtered, 255, 0, 0);
+		////p->addPointCloud(output, cloud_tgt_h, "target", vp_2);
+		////p->addPointCloud(cloud_in_filtered, cloud_src_h, "source", vp_2);
+		////p->spin();
 
 		/////////////////////////////////////////////////////////////////////////////////////
 		// Compute surface normals and curvature
 
-		////PointCloudWithNormals::Ptr points_with_normals_src(new PointCloudWithNormals);
-		////PointCloudWithNormals::Ptr points_with_normals_tgt(new PointCloudWithNormals);
+		PointCloudWithNormals::Ptr points_with_normals_src(new PointCloudWithNormals);
+		PointCloudWithNormals::Ptr points_with_normals_tgt(new PointCloudWithNormals);
 
-		////pcl::NormalEstimation<pcl::PointXYZ, PointNormalT> norm_est;
-		////pcl::search::KdTree<pcl::PointXYZ>::Ptr tree(new pcl::search::KdTree<pcl::PointXYZ>());
-		////norm_est.setSearchMethod(tree);
-		////norm_est.setKSearch(30);
+		pcl::NormalEstimation<pcl::PointXYZ, PointNormalT> norm_est;
+		pcl::search::KdTree<pcl::PointXYZ>::Ptr tree(new pcl::search::KdTree<pcl::PointXYZ>());
+		norm_est.setSearchMethod(tree);
+		norm_est.setKSearch(30);
 
-		////norm_est.setInputCloud(cloud_in_filtered);
-		////norm_est.compute(*points_with_normals_src);
-		////pcl::copyPointCloud(*cloud_in_filtered, *points_with_normals_src);
+		norm_est.setInputCloud(cloud_in_filtered);
+		norm_est.compute(*points_with_normals_src);
+		pcl::copyPointCloud(*cloud_in_filtered, *points_with_normals_src);
 
-		////norm_est.setInputCloud(cloud_out_filtered);
-		////norm_est.compute(*points_with_normals_tgt);
-		////pcl::copyPointCloud(*cloud_out_filtered, *points_with_normals_tgt);
+		norm_est.setInputCloud(cloud_out_filtered);
+		norm_est.compute(*points_with_normals_tgt);
+		pcl::copyPointCloud(*cloud_out_filtered, *points_with_normals_tgt);
 
-		//////
-		////// Instantiate our custom point representation (defined above) ...
-		////MyPointRepresentation point_representation;
-		////// ... and weight the 'curvature' dimension so that it is balanced against x, y, and z
-		////float alpha[4] = { 1.0, 1.0, 1.0, 1.0 };
-		////point_representation.setRescaleValues(alpha);
+		//
+		// Instantiate our custom point representation (defined above) ...
+		MyPointRepresentation point_representation;
+		// ... and weight the 'curvature' dimension so that it is balanced against x, y, and z
+		float alpha[4] = { 1.0, 1.0, 1.0, 1.0 };
+		point_representation.setRescaleValues(alpha);
 
-		//////
-		////// Align
-		////pcl::IterativeClosestPointNonLinear<PointNormalT, PointNormalT> reg;
-		////reg.setTransformationEpsilon(1e-6);
-		////// Set the maximum distance between two correspondences (src<->tgt) to 10cm
-		////// Note: adjust this based on the size of your datasets
-		////reg.setMaxCorrespondenceDistance(0.1);
-		////// Set the point representation
-		////reg.setPointRepresentation(boost::make_shared<const MyPointRepresentation>(point_representation));
+		//
+		// Align
+		pcl::IterativeClosestPointNonLinear<PointNormalT, PointNormalT> reg;
+		reg.setTransformationEpsilon(0.5); //1
+										   // Set the maximum distance between two correspondences (src<->tgt) to 10cm
+										   // Note: adjust this based on the size of your datasets
+		reg.setMaxCorrespondenceDistance(100); //0.1
+											   // Set the point representation
+		reg.setPointRepresentation(boost::make_shared<const MyPointRepresentation>(point_representation));
 
-		////reg.setInputSource(points_with_normals_src);
-		////reg.setInputTarget(points_with_normals_tgt);
+		reg.setInputSource(points_with_normals_src);
+		reg.setInputTarget(points_with_normals_tgt);
 
-		//////
-		////// Run the same optimization in a loop and visualize the results
-		////Eigen::Matrix4f Ti = Eigen::Matrix4f::Identity(), prev, targetToSource;
-		////PointCloudWithNormals::Ptr reg_result = points_with_normals_src;
-		////reg.setMaximumIterations(2);
-		////for (int i = 0; i < 1; ++i)
-		////{
-		////	// save cloud for visualization purpose
-		////	points_with_normals_src = reg_result;
+		//
+		// Run the same optimization in a loop and visualize the results
+		Eigen::Matrix4f Ti = Eigen::Matrix4f::Identity(), prev, targetToSource;
+		PointCloudWithNormals::Ptr reg_result = points_with_normals_src;
+		reg.setMaximumIterations(10); //5
+		for (int i = 0; i < 20; ++i) //10
+		{
+			// save cloud for visualization purpose
+			points_with_normals_src = reg_result;
 
-		////	// Estimate
-		////	reg.setInputSource(points_with_normals_src);
-		////	reg.align(*reg_result);
+			// Estimate
+			reg.setInputSource(points_with_normals_src);
+			reg.align(*reg_result);
 
-		////	//accumulate transformation between each Iteration
-		////	Ti = reg.getFinalTransformation() * Ti;
+			//accumulate transformation between each Iteration
+			Ti = reg.getFinalTransformation() * Ti;
 
-		////	//if the difference between this transformation and the previous one
-		////	//is smaller than the threshold, refine the process by reducing
-		////	//the maximal correspondence distance
-		////	if (fabs((reg.getLastIncrementalTransformation() - prev).sum()) < reg.getTransformationEpsilon())
-		////		reg.setMaxCorrespondenceDistance(reg.getMaxCorrespondenceDistance() - 0.001);
+			//if the difference between this transformation and the previous one
+			//is smaller than the threshold, refine the process by reducing
+			//the maximal correspondence distance
+			if (fabs((reg.getLastIncrementalTransformation() - prev).sum()) < reg.getTransformationEpsilon())
+				reg.setMaxCorrespondenceDistance(reg.getMaxCorrespondenceDistance() - 1); //01
 
-		////	prev = reg.getLastIncrementalTransformation();
-		////}
+			prev = reg.getLastIncrementalTransformation();
+		}
+
+		//////targetToSource = Ti;//.inverse();
+		//////// Visualize
+		//////PointCloud<PointXYZ>::Ptr output(new PointCloud<PointXYZ>);
+		///////*pcl::transformPointCloud(*cloud_out_filtered, *output, targetToSource);*/
+		//////pcl::transformPointCloud(*cloud_in_filtered, *output, targetToSource);
+
+		//////p->removePointCloud("source");
+		//////p->removePointCloud("target");
+
+		//////PointCloudColorHandlerCustom<pcl::PointXYZ> cloud_tgt_h(output, 0, 255, 0);
+		//////PointCloudColorHandlerCustom<pcl::PointXYZ> cloud_src_h(cloud_in_filtered, 255, 0, 0);
+		//////p->addPointCloud(output, cloud_tgt_h, "target", vp_2);
+		//////p->addPointCloud(cloud_out_filtered, cloud_src_h, "source", vp_2);
+		//////p->spin();
+
 		/////////////////////////////////////////////////////////////////////////////////////////////////////////
-		//Eigen::Matrix4f homogenous_matrix;
-		//homogenous_matrix = Ti;
 
-		//for (int i = 0; i < 3; i++)
-		//{
-		//	for (int j = 0; j < 3; j++)
-		//	{
-		//		R.at<float>(i, j) = homogenous_matrix(i, j);
-		//	}
-		//}
-
-		//for (int i = 0; i < 3; i++)
-		//{
-		//	t.at<float>(i, 0) = homogenous_matrix(i, 3);
-		//}
-
-		t_f = t_f + R_f*t;
-		R_f = R*R_f;
-		Final_t.push_back({t_f.at<float>(0),t_f.at<float>(2)});
+		Eigen::Matrix4f homogenous_matrix;
+		homogenous_matrix = Ti;
 		Final_H.push_back(homogenous_matrix);
 	}
 
@@ -802,26 +532,3 @@ int main()
 #pragma warning(pop) 
 #endif 
 
-
-//cout << "cloud_in_filtered: " << cloud_in_filtered->width*cloud_in_filtered->height << endl;
-//cout << "cloud_out_filtered: " << cloud_out_filtered->width*cloud_out_filtered->height << endl;
-
-
-//boost::shared_ptr<pcl::visualization::PCLVisualizer> viewer(new pcl::visualization::PCLVisualizer("3D Viewer"));
-
-//viewer->setBackgroundColor(0, 0, 0);
-//pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZ> single_color(cloud_in_filtered, 0, 255, 0);
-//viewer->addPointCloud<pcl::PointXYZ>(cloud_in_filtered, single_color, "sample cloud");
-//pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZ> single_color2(cloud_out_filtered, 255, 0, 0);
-//viewer->addPointCloud<pcl::PointXYZ>(cloud_out_filtered, single_color2, "sample cloud2");
-//viewer->setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 3, "sample cloud");
-//viewer->setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 3, "sample cloud2");
-//viewer->addCoordinateSystem(1.0);
-//viewer->initCameraParameters();
-
-
-//while (!viewer->wasStopped())
-//{
-//	viewer->spinOnce(100);
-//	boost::this_thread::sleep(boost::posix_time::microseconds(1000)); //00
-//}
